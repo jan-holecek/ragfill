@@ -16,6 +16,7 @@ class Embedding:
             model=self.settings.litellm_model,
             input=texts,
             api_base=self.settings.api_base,
+            api_key=self.settings.open_api_key
         )
 
         elapsed = time.time() - start
@@ -35,6 +36,7 @@ class Embedding:
             model=self.settings.litellm_model,
             input=[query],
             api_base=self.settings.api_base,
+            api_key=self.settings.open_api_key
         )
 
         elapsed = time.time() - start
