@@ -3,3 +3,8 @@ elasticsearch
 langchain
 langchain-community
 langchain-core
+langchain-text-splitters
+python-docx
+litellm
+pydantic
+pydantic-settings

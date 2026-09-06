@@ -1,6 +1,6 @@
 services:
   mongodb:
-    image: mongo:8.0.10
+    image: mongo:8.0.12
     container_name: ragfill-mongodb
     restart: unless-stopped
     ports:
@@ -9,9 +9,10 @@ services:
       - ./data/mongodb:/data/db
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
     container_name: ragfill-elasticsearch
     restart: unless-stopped
+    user: "1000:1000"
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -20,3 +21,72 @@ services:
       - "9200:9200"
     volumes:
       - ./data/elasticsearch:/usr/share/elasticsearch/data
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: ragfill-litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
+  ollama:
+    image: ollama/ollama
+    container_name: ragfill-ollama
+    profiles: ["cpu", "rocm"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    environment:
+      - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-999}
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+
+  vllm-embedding:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: ragfill-vllm-embedding
+    profiles: ["cuda"]
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data/vllm:/root/.cache/huggingface
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["vllm", "serve", "${EMBEDDING__HF_MODEL}", "--gpu-memory-utilization", "0.1", "--max-num-seqs", "1"]
+
+  vllm-generation:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: ragfill-vllm-generation
+    profiles: ["cuda"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/vllm:/root/.cache/huggingface
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["vllm", "serve", "${LLM__HF_MODEL}", "--quantization", "awq", "--gpu-memory-utilization", "0.7", "--max-model-len", "${LLM__CONTEXT:-4096}"]

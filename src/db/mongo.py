@@ -1,13 +1,14 @@
 from pymongo.synchronous.database import Database
 from pymongo.synchronous.collection import Collection
-from core.BaseDB import BaseDB
+from core.db import BaseDB
 from pymongo import MongoClient
 from config import MongoSettings
 
 class MongoDB(BaseDB):
     def __init__(self, settings: MongoSettings) -> None:
-        self.client = MongoClient(settings.url)
-        self.database = self.client.get_database(settings.database)
+        self.settings = settings
+        self.client = MongoClient(self.settings.url)
+        self.database = self.client.get_database(self.settings.database)
 
     def disconnect(self) -> None:
         self.client.close()

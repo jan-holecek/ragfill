@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+from typing import Any
+
 from config import MongoSettings, ElasticSettings
 
 class BaseDB(ABC):
@@ -11,7 +13,7 @@ class BaseDB(ABC):
         pass
 
     @abstractmethod
-    def get_client(self) -> MongoSettings | ElasticSettings:
+    def get_client(self) -> Any:
         pass
     
     @abstractmethod

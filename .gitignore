@@ -9,7 +9,7 @@ wheels/
 .vscode
 .idea
 
-data/*
+data
 
 # Virtual environments
 .venv

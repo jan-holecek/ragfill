@@ -1,0 +1,13 @@
+model_list:
+  - model_name: llm
+    litellm_params:
+      model: "${LLM__LITELLM_MODEL}"
+      api_base: "${LLM__API_BASE}"
+
+  - model_name: embedding
+    litellm_params:
+      model: "${EMBEDDING__LITELLM_MODEL}"
+      api_base: "${EMBEDDING__API_BASE}"
+
+general_settings:
+  master_key: "${LITELLM_KEY}"
