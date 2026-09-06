@@ -26,3 +26,9 @@ class EmbeddingResponse:
 
     def __post_init__(self):
         self.elapsed = round(self.elapsed, 2)
+
+@dataclass
+class StreamChunkResponse:
+    token: str | None = None
+    stats: RAGResponse | None = None
+    is_done: bool = False
