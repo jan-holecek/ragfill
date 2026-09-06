@@ -15,10 +15,13 @@ class LLMSettings(BaseModel):
     model: str
     hf_model: str
     litellm_model: str
+    open_api_key: str
     api_base: str
     temperature: float = 0.7
+    enable_thinking: bool = False
 
 class EmbeddingSettings(BaseModel):
+    open_api_key: str
     model: str
     hf_model: str
     litellm_model: str
@@ -29,9 +32,9 @@ class ChunkingSettings(BaseModel):
     chunk_overlap: int = 200
 
 class SearchSettings(BaseModel):
-    bm25_K: int = 5
-    knn_K: int = 5
-    num_candidates: int = 100
+    bm25_K: int = 3
+    knn_K: int = 3
+    num_candidates: int = 200
     knn_score_threshold: float = 0.5
 
 class Settings(BaseSettings):
