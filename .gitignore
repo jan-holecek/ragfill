@@ -11,6 +11,9 @@ wheels/
 
 data
 
+# Local Streamlit test app - not part of the project
+app.py
+
 # Virtual environments
 .venv
 
