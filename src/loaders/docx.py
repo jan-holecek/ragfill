@@ -8,6 +8,7 @@ from docx.oxml.table import CT_Tbl
 from docx.text.paragraph import Paragraph
 from docx.table import Table as DocxTable
 from typing import Iterator
+from docx.oxml.ns import qn
 
 class DocxLoader(BaseLoader):
     def __init__(self, file_path: str):
@@ -33,8 +34,34 @@ class DocxLoader(BaseLoader):
     def _is_data_table(self, header: list[str]) -> bool:
         return len(header) >= 2
 
+    def _process_table(self, table: Table) -> str:
+        headers = self._get_table_header(table)
+        lines = []
+
+        if self._is_data_table(headers):
+            for row in table.rows[1:]:
+                cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
+                parts = []
+
+                for h, c in zip(headers, cells):
+                    if c:
+                        parts.append(f"{h}: {c}")
+
+                if parts:
+                    lines.append(" | ".join(parts))
+        else:
+            for row in table.rows:
+                cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
+                cells = [c for c in cells if c]
+
+                if cells:
+                    lines.append(": ".join(cells))
+
+        return "\n".join(lines)
+
     def _paragraph_to_md(self, paragraph: Paragraph) -> str:
         style = paragraph.style.name if paragraph.style else "Normal"
+        text = ""
 
         if paragraph._p.pPr is not None and paragraph._p.pPr.numPr is not None:
             if "Number" in style:
@@ -43,22 +70,30 @@ class DocxLoader(BaseLoader):
                 prefix = "- "
         else:
             prefix = self.style_to_md.get(style, "")
-
-        text = ""
-
-        for run in paragraph.runs:
-            run_text = run.text
-
-            if run.bold and run_text.strip():
-                run_text = f"**{run_text}**"
-
-            text += run_text
-
+        
+        for element in paragraph._p:
+            if element.tag == qn("w:r"):
+                run_text = element.findtext(qn("w:t"), "") or ""
+                bold = element.find(f"{qn('w:rPr')}/{qn('w:b')}") is not None
+                
+                if bold and run_text.strip():
+                    run_text = f"**{run_text}**"
+                    
+                text += run_text
+            elif element.tag == qn("w:hyperlink"):
+                for run in element.findall(qn("w:r")):
+                    run_text = run.findtext(qn("w:t"), "") or ""
+                    text += run_text
+            elif element.tag == qn("w:ins"):
+                for run in element.findall(qn("w:r")):
+                    run_text = run.findtext(qn("w:t"), "") or ""
+                    text += run_text
+                    
         text = text.strip()
-
+        
         if not text:
             return ""
-
+        
         return f"{prefix}{text}"
 
     def lazy_load(self) -> Iterator[Document]:
@@ -80,26 +115,10 @@ class DocxLoader(BaseLoader):
 
             elif isinstance(element, CT_Tbl):
                 table = DocxTable(element, document)
-                headers = self._get_table_header(table)
+                table_text = self._process_table(table)
 
-                if self._is_data_table(headers):
-                    for row in table.rows[1:]:
-                        cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
-                        parts = []
-
-                        for header, cell in zip(headers, cells):
-                            if cell:
-                                parts.append(f"{header}: {cell}")
-
-                        if parts:
-                            content.append(f"{' | '.join(parts)}")
-                else:
-                    for row in table.rows:
-                        cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
-                        cells = [cell for cell in cells if cell]
-
-                        if cells:
-                            content.append(": ".join(cells))
+                if table_text:
+                    content.append(table_text)
 
         content = "\n".join(content)
         metadata["word_count"] = len(content.split())
