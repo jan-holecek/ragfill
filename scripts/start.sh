@@ -25,8 +25,8 @@ if [ "$DEVICE" = "cuda" ]; then
 
     sed -i "s|LLM__LITELLM_MODEL=.*|LLM__LITELLM_MODEL=openai/${LLM__HF_MODEL}|" .env
     sed -i "s|EMBEDDING__LITELLM_MODEL=.*|EMBEDDING__LITELLM_MODEL=openai/${EMBEDDING__HF_MODEL}|" .env
-    sed -i "s|LLM__API_BASE=.*|LLM__API_BASE=http://localhost:8000|" .env
-    sed -i "s|EMBEDDING__API_BASE=.*|EMBEDDING__API_BASE=http://localhost:8001|" .env
+    sed -i "s|LLM__API_BASE=.*|LLM__API_BASE=http://localhost:8000/v1|" .env
+    sed -i "s|EMBEDDING__API_BASE=.*|EMBEDDING__API_BASE=http://localhost:8001/v1|" .env
 
 else
     echo "Waiting for Ollama"
