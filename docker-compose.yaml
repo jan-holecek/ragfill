@@ -67,13 +67,18 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    command: ["vllm", "serve", "${EMBEDDING__HF_MODEL}", "--gpu-memory-utilization", "0.1", "--max-num-seqs", "1"]
+    command: ["vllm", "serve", "${EMBEDDING__HF_MODEL}", "--gpu-memory-utilization", "0.05", "--max-num-seqs", "1"]
 
   vllm-generation:
     image: nvcr.io/nvidia/vllm:25.09-py3
     container_name: ragfill-vllm-generation
     profiles: ["cuda"]
     restart: unless-stopped
+    ipc: host
+    shm_size: 8g
+    ulimits:
+      memlock: -1
+      stack: 67108864
     ports:
       - "8000:8000"
     volumes:
@@ -89,4 +94,4 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    command: ["vllm", "serve", "${LLM__HF_MODEL}", "--quantization", "awq", "--gpu-memory-utilization", "0.7", "--max-model-len", "${LLM__CONTEXT:-4096}"]
+    command: ["vllm", "serve", "${LLM__HF_MODEL}", "--quantization", "awq", "--gpu-memory-utilization", "0.65", "--max-model-len", "${LLM__CONTEXT:-4096}"]
