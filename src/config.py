@@ -17,7 +17,7 @@ class LLMSettings(BaseModel):
     litellm_model: str
     open_api_key: str
     api_base: str
-    temperature: float = 0.7
+    temperature: float = 0.0
     enable_thinking: bool = False
 
 class EmbeddingSettings(BaseModel):
@@ -29,13 +29,22 @@ class EmbeddingSettings(BaseModel):
 
 class ChunkingSettings(BaseModel):
     chunk_size: int = 2000
-    chunk_overlap: int = 200
+    chunk_overlap: int = 0
 
 class SearchSettings(BaseModel):
-    bm25_K: int = 3
-    knn_K: int = 3
+    bm25_K: int = 4
+    knn_K: int = 4
     num_candidates: int = 200
     knn_score_threshold: float = 0.5
+
+class RewriteSettings(BaseModel):
+    custom_model: str | None = None
+    context: int | None = None
+    litellm_model: str
+    open_api_key: str
+    api_base: str
+    enable_thinking: bool = False
+    temperature: float = 0.0
 
 class Settings(BaseSettings):
     mongo: MongoSettings
@@ -44,6 +53,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings
     chunking: ChunkingSettings = ChunkingSettings()
     search: SearchSettings = SearchSettings()
+    rewrite: RewriteSettings
 
     class Config:
         env_file = ".env"
