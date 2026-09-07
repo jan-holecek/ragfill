@@ -35,29 +35,40 @@ class DocxLoader(BaseLoader):
         return len(header) >= 2
 
     def _process_table(self, table: Table) -> str:
-        headers = self._get_table_header(table)
+        rows = []
+
+        for row in table.rows:
+            cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+            seen = set()
+            unique_cells = []
+
+            for i, cell in enumerate(row.cells):
+                if cell._tc not in seen:
+                    seen.add(cell._tc)
+                    unique_cells.append(cells[i])
+
+            rows.append(unique_cells)
+
+        if not rows:
+            return ""
+
+        max_cols = max(len(r) for r in rows)
+        rows = [r + [""] * (max_cols - len(r)) for r in rows]
+
         lines = []
+        lines.append("| " + " | ".join(rows[0]) + " |")
+        lines.append("| " + " | ".join(["---"] * max_cols) + " |")
 
-        if self._is_data_table(headers):
-            for row in table.rows[1:]:
-                cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
-                parts = []
+        for row in rows[1:]:
+            if any(c.strip() for c in row):
+                lines.append("| " + " | ".join(row) + " |")
 
-                for h, c in zip(headers, cells):
-                    if c:
-                        parts.append(f"{h}: {c}")
+        result = "\n".join(lines)
 
-                if parts:
-                    lines.append(" | ".join(parts))
-        else:
-            for row in table.rows:
-                cells = list(dict.fromkeys([cell.text.strip() for cell in row.cells]))
-                cells = [c for c in cells if c]
+        if not any(line.replace("|", "").replace("-", "").replace(" ", "") for line in lines):
+            return ""
 
-                if cells:
-                    lines.append(": ".join(cells))
-
-        return "\n".join(lines)
+        return result
 
     def _paragraph_to_md(self, paragraph: Paragraph) -> str:
         style = paragraph.style.name if paragraph.style else "Normal"
@@ -118,7 +129,7 @@ class DocxLoader(BaseLoader):
                 table_text = self._process_table(table)
 
                 if table_text:
-                    content.append(table_text)
+                    content.append(f"\n{table_text}\n")
 
         content = "\n".join(content)
         metadata["word_count"] = len(content.split())
