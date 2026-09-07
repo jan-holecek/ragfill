@@ -17,10 +17,14 @@ class BaseLoader(LangchainBaseLoader):
     @staticmethod
     def get_loader(file_path: str) -> LangchainBaseLoader:
         from loaders.docx import DocxLoader
+        from loaders.xlsx import XLSXLoader
+        from loaders.pdf import PDFLoader
 
         extensions = Path(file_path).suffix.lower()
         loaders = {
             ".docx": DocxLoader,
+            ".pdf": PDFLoader,
+            ".xlsx": XLSXLoader,
         }
 
         if extensions not in loaders:
