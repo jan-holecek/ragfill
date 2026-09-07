@@ -1,6 +1,23 @@
 # RagFill
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![Docker Compose](https://img.shields.io/badge/docker-compose-2496ED.svg)](docker-compose.yaml)
+
 RagFill is a self-hosted Retrieval-Augmented Generation (RAG) backend. It ingests documents, indexes them for hybrid search, and answers questions grounded strictly in that content. It has no dependency on a third-party LLM API, since every model (LLM and embedding) runs locally through Ollama or vLLM and is fronted by LiteLLM.
+
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Project structure](#project-structure)
+- [Configuration](#configuration)
+  - [Choosing a device profile](#choosing-a-device-profile)
+  - [Tuning search & chunking](#tuning-search--chunking)
+- [Managing models](#managing-models)
+- [Running it](#running-it)
+- [Services and ports](#services-and-ports)
+- [TODO](#todo)
+- [License](#license)
 
 ## What it does
 
@@ -182,11 +199,18 @@ Requires Docker, and either `uv` or `pip` with Python 3.11+.
 | vLLM embedding | 8001 | cuda | NVIDIA embedding inference |
 
 ## TODO
-- Query rewriting step before retrieval
-- Reranking of hybrid search results - BGE reranker planned, waiting for GPU
-- Additional loaders: PDF, XLSX, etc
-- Template filling - extract placeholders from a Word template, run a RAG query per placeholder, write values back
-- REST API so the pipeline can be used without a Python entrypoint
-- Use MongoDB for chat history and uploaded file metadata, currently connected but unused
-- LLMOps - integrate Langfuse for prompt/response logging, latency tracking and RAG quality evaluation
-- Automated tests
+
+- [ ] Query rewriting step before retrieval
+- [ ] Reranking of hybrid search results
+- [ ] Additional loaders - PDF, XLSX, etc.
+- [ ] Template filling - extract placeholders from a Word template, run a RAG query per placeholder, write values back
+- [ ] REST API so the pipeline can be used without a Python entrypoint
+- [ ] Directory crawler - recursively index all `.docx`/`.xlsx` files from a local path or network share
+- [ ] Use MongoDB for uploaded file metadata, currently connected but unused
+- [ ] LLMOps - integrate Langfuse for prompt/response logging, latency tracking and per-request observability
+- [ ] Evaluation - build a test dataset and run RAGAS metrics (faithfulness, answer relevancy, context precision) offline to measure and compare pipeline changes
+- [ ] Automated tests
+
+## License
+
+Licensed under the [MIT License](LICENSE).
