@@ -8,3 +8,6 @@ python-docx
 litellm
 pydantic
 pydantic-settings
+pymupdf4llm
+pymupdf
+openpyxl
