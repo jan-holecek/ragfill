@@ -1,24 +1,32 @@
-import litellm
 import time
+import litellm
 from langchain_core.documents import Document
 from config import EmbeddingSettings
 from models.response import EmbeddingResponse
+
+litellm.suppress_debug_info = True
 
 class Embedding:
     def __init__(self, settings: EmbeddingSettings) -> None:
         self.settings = settings
 
-    def embed_documents(self, chunks: list[Document]) -> EmbeddingResponse:
-        texts = [chunk.page_content for chunk in chunks]
-        start = time.time()
+    def _call_embedding(self, texts: list[str]) -> litellm.EmbeddingResponse:
+        provider = self.settings.litellm_model.split("/")[0]
 
-        response = litellm.embedding(
+        return litellm.embedding(
             model=self.settings.litellm_model,
             input=texts,
             api_base=self.settings.api_base,
-            api_key=self.settings.open_api_key
+            api_key=self.settings.open_api_key,
+            custom_llm_provider=provider,
+            timeout=self.settings.timeout,
+            num_retries=2,
         )
 
+    def embed_documents(self, chunks: list[Document]) -> EmbeddingResponse:
+        texts = [chunk.page_content for chunk in chunks]
+        start = time.time()
+        response = self._call_embedding(texts)
         elapsed = time.time() - start
         vectors = [item["embedding"] for item in response.data]
 
@@ -31,14 +39,7 @@ class Embedding:
 
     def embed_query(self, query: str) -> EmbeddingResponse:
         start = time.time()
-
-        response = litellm.embedding(
-            model=self.settings.litellm_model,
-            input=[query],
-            api_base=self.settings.api_base,
-            api_key=self.settings.open_api_key
-        )
-
+        response = self._call_embedding([query])
         elapsed = time.time() - start
         vectors = [item["embedding"] for item in response.data]
 

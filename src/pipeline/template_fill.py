@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from config import SearchSettings
 from db.elasticsearch import ElasticSearchDB
 from models.response import RAGResponse
@@ -71,7 +70,7 @@ class TemplateFill:
             rewritten_prompt = rewrite_result.rewritten_query
 
         query_vector = self.embedding.embed_query(rewritten_prompt)
-        search_chunks = self.search.search(rewritten_prompt, query_vector.vectors[0])
+        search_chunks, used_queries = self.search.rewrite_and_search(rewritten_prompt, self.embedding)
 
         if not search_chunks:
             return None
@@ -83,21 +82,23 @@ class TemplateFill:
             rewrite_result,
             prompt_builder=build_template_fill_prompt
         )
+        response.used_queries = used_queries
 
         return response
 
     def _generate_all_placeholders(self, placeholders: dict[str, str]):
         all_chunks = {}
+        used_queries_by_placeholder = {}
 
         for placeholder, prompt in placeholders.items():
-            emb = self.embedding.embed_query(prompt)
-            results = self.search.search(prompt, emb.vectors[0])
+            results, used_queries = self.search.rewrite_and_search(prompt, self.embedding)
+            used_queries_by_placeholder[placeholder] = used_queries
 
             for chunk in results:
                 all_chunks[chunk.id] = chunk
 
         if not all_chunks:
-            return {p: "" for p in placeholders}, 0, None
+            return {p: "" for p in placeholders}, 0, None, used_queries_by_placeholder
 
         chunks = list(all_chunks.values())
         fields_description = "\n".join([f'"{p}": "{prompt}"' for p, prompt in placeholders.items()])
@@ -114,9 +115,9 @@ class TemplateFill:
         try:
             values = json.loads(content)
 
-            return {k: str(v) for k, v in values.items()}, response.elapsed, response
+            return {k: str(v) for k, v in values.items()}, response.elapsed, response, used_queries_by_placeholder
         except Exception:
-            return {p: "" for p in placeholders}, response.elapsed, None
+            return {p: "" for p in placeholders}, response.elapsed, None, used_queries_by_placeholder
 
     def fill_stream(self, file_path: str) -> Generator[PlaceholderResponse, None, None]:
         placeholders = self._extract_placeholders(file_path)
@@ -134,6 +135,7 @@ class TemplateFill:
                     elapsed=generated.elapsed,
                     rewrite=generated.rewrite,
                     chunks=generated.chunks,
+                    used_queries=generated.used_queries,
                 )
             else:
                 yield PlaceholderResponse(
@@ -148,7 +150,7 @@ class TemplateFill:
     def fill(self, file_path: str) -> TemplateFillResponse:
         placeholders = self._extract_placeholders(file_path)
         start = time.time()
-        values, elapsed, response = self._generate_all_placeholders(placeholders)
+        values, elapsed, response, used_queries_by_placeholder = self._generate_all_placeholders(placeholders)
 
         results = [
             PlaceholderResponse(
@@ -160,6 +162,7 @@ class TemplateFill:
                 elapsed=elapsed,
                 chunks=response.chunks if response else [],
                 rewrite=response.rewrite if response else None,
+                used_queries=used_queries_by_placeholder.get(p),
             )
 
             for p in placeholders

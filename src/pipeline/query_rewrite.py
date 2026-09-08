@@ -27,7 +27,8 @@ class QueryRewrite:
             temperature=self.settings.temperature,
             api_base=self.settings.api_base,
             api_key=self.settings.open_api_key,
-            extra_body=self._get_extra_body()
+            extra_body=self._get_extra_body(),
+            timeout = self.settings.timeout,
         )
 
         return RewriteResponse(

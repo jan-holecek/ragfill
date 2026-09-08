@@ -6,6 +6,7 @@ from models.search import SearchResult
 from prompts import build_rag_prompt
 import litellm
 
+litellm.suppress_debug_info = True
 litellm.cache = litellm.Cache(type="local")
 
 class Generation:
@@ -40,7 +41,7 @@ class Generation:
             api_key=self.settings.open_api_key,
             extra_body=self._get_extra_body(),
             caching=True,
-            timeout=3600
+            timeout=self.settings.timeout,
         )
 
         end = time.time()
@@ -52,7 +53,7 @@ class Generation:
             prompt_tokens=response.usage.prompt_tokens,
             elapsed=end - start,
             rewrite=rewrite_response,
-            embedding=embedding_response
+            embedding=embedding_response,
         )
 
     def stream_generate(self, query: str, chunks: list[SearchResult], embedding_response: EmbeddingResponse | None = None, rewrite_response: RewriteResponse | None = None, prompt_builder=build_rag_prompt) -> Generator[StreamChunkResponse, None, None]:
@@ -85,7 +86,7 @@ class Generation:
             caching=True,
             stream=True,
             stream_options={"include_usage": True},
-            timeout=3600
+            timeout=self.settings.timeout,
         )
 
         for chunk in response:

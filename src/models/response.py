@@ -30,6 +30,7 @@ class RAGResponse:
     elapsed: float
     embedding: EmbeddingResponse | None = None
     rewrite: RewriteResponse | None = None
+    used_queries: list[str] | None = None
 
     def __post_init__(self):
         self.elapsed = round(self.elapsed, 2)
@@ -52,6 +53,7 @@ class PlaceholderResponse:
     elapsed: float
     rewrite: RewriteResponse | None = None
     chunks: list = None
+    used_queries: list[str] | None = None
 
 @dataclass
 class TemplateFillResponse:
