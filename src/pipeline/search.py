@@ -3,6 +3,7 @@ from elastic_transport import ObjectApiResponse
 from config import SearchSettings
 from db.elasticsearch import ElasticSearchDB
 from models.search import SearchResult
+from pipeline.embedding import Embedding
 
 class Search:
     def __init__(self, db: ElasticSearchDB, settings: SearchSettings = SearchSettings()) -> None:
@@ -10,7 +11,7 @@ class Search:
         self.client = db.get_client()
         self.settings = settings
 
-    def BM25_search(self, query) -> list[SearchResult]:
+    def _BM25_search(self, query, bm25_K: int | None = None) -> list[SearchResult]:
         results = self.client.search(
             index=self.db.get_index(),
             body={
@@ -20,14 +21,14 @@ class Search:
                         "fields": ["*"]
                     }
                 },
-                "size": self.settings.bm25_K,
+                "size": bm25_K if bm25_K is not None else self.settings.bm25_K,
                 "_source": {"excludes": ["embedding"]},
             }
         )
 
         return self._return_results(results)
 
-    def knn_search(self, query_vector: list[float]) -> list[SearchResult]:
+    def _knn_search(self, query_vector: list[float], knn_K: int | None = None) -> list[SearchResult]:
         results = (
             self.client.search(
             index=self.db.get_index(),
@@ -35,7 +36,7 @@ class Search:
                 "knn": {
                     "field": "embedding",
                     "query_vector": query_vector,
-                    "k": self.settings.knn_K,
+                    "k": knn_K if knn_K is not None else self.settings.knn_K,
                     "num_candidates": self.settings.num_candidates,
                     "similarity": self.settings.knn_score_threshold,
                 },
@@ -45,11 +46,48 @@ class Search:
 
         return self._return_results(results)
 
-    def search(self, query: str, query_vector: list[float]):
-        knn_results = self.knn_search(query_vector)
-        bm25_results = self.BM25_search(query)
+    def search(self, query: str, query_vector: list[float], bm25_K: int | None = None, knn_K: int | None = None) -> list[SearchResult]:
+        knn_results = self._knn_search(query_vector, knn_K)
+        bm25_results = self._BM25_search(query, bm25_K)
 
         return self._rrf(bm25_results, knn_results)
+
+    def _parse_subqueries(self, raw: str) -> list[str]:
+        queries = []
+        for line in raw.split("\n"):
+            line = line.strip()
+
+            if not line:
+                continue
+
+            queries.append(line)
+
+        if len(queries) > self.settings.max_subqueries:
+            queries = queries[:self.settings.max_subqueries]
+
+        return queries
+
+    def _multi_query_search(self, queries: list[str], embedding: Embedding) -> list[SearchResult]:
+        merged: dict[str, SearchResult] = {}
+
+        for query in queries:
+            query_vector = embedding.embed_query(query).vectors[0]
+            results = self.search(
+                query,
+                query_vector,
+                bm25_K=self.settings.decomposed_bm25_K,
+                knn_K=self.settings.decomposed_knn_K,
+            )
+
+            for result in results:
+                result.metadata["matched_subquery"] = query
+
+                if result.id not in merged:
+                    merged[result.id] = result
+
+        final_results = sorted(merged.values(), key=lambda result: result.rrf_score, reverse=True)
+
+        return final_results[:self.settings.max_total_chunks]
 
     def _rrf(self, bm25_results: list[SearchResult], knn_results: list[SearchResult]) -> list[SearchResult]:
         k = 60
@@ -86,3 +124,13 @@ class Search:
 
             for hit in results["hits"]["hits"]
         ]
+
+    def rewrite_and_search(self, raw_rewrite_output: str, embedding: Embedding) -> tuple[list[SearchResult], list[str]]:
+        queries = self._parse_subqueries(raw_rewrite_output)
+
+        if len(queries) == 1:
+            query_vector = embedding.embed_query(queries[0]).vectors[0]
+
+            return self.search(queries[0], query_vector), queries
+
+        return self._multi_query_search(queries, embedding), queries
