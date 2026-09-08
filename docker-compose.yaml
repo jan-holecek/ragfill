@@ -46,6 +46,9 @@ services:
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
+    group_add:
+      - "992"
+      - "44"
 
   vllm-embedding:
     image: nvcr.io/nvidia/vllm:25.09-py3

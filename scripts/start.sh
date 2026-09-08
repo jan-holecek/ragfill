@@ -51,6 +51,15 @@ else
         sudo docker exec ragfill-ollama sh -c "printf 'FROM ${LLM__MODEL}\nPARAMETER num_ctx ${REWRITE__CONTEXT}' > /tmp/Modelfile && ollama create ${REWRITE__CUSTOM_MODEL} -f /tmp/Modelfile"
     fi
 
+
+    if [ "$DEVICE" = "rocm" ] && [ "$ROCM_IGPU" = "1" ]; then
+        echo "Configuring ROCm iGPU support"
+
+        export HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-11.0.0}"
+        export HCC_AMDGPU_TARGET="${HCC_AMDGPU_TARGET:-gfx1100}"
+        export OLLAMA_IGPU_ENABLE=1
+    fi
+
     sed -i "s|LLM__LITELLM_MODEL=.*|LLM__LITELLM_MODEL=ollama/${LLM__CUSTOM_MODEL:-${LLM__MODEL}}|" .env
     sed -i "s|EMBEDDING__LITELLM_MODEL=.*|EMBEDDING__LITELLM_MODEL=ollama/${EMBEDDING__MODEL}|" .env
     sed -i "s|REWRITE__LITELLM_MODEL=.*|REWRITE__LITELLM_MODEL=ollama/${REWRITE__CUSTOM_MODEL:-${LLM__CUSTOM_MODEL:-${LLM__MODEL}}}|" .env
