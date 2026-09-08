@@ -17,7 +17,7 @@ def main() -> None:
     elasticsearch_client = ElasticSearchDB(settings.elasticsearch)
 
     loader = BaseLoader.get_loader(EXAMPLE_FILE)
-    chunking = Chunking()
+    chunking = Chunking(settings.chunking)
     embedding = Embedding(settings.embedding)
     search = Search(elasticsearch_client)
     generation = Generation(settings.llm)
