@@ -36,14 +36,14 @@ class ChunkingSettings(BaseModel):
     table_size_multiplier: float = 2.0
 
 class SearchSettings(BaseModel):
-    bm25_K: int = 4
-    knn_K: int = 4
-    num_candidates: int = 200
+    bm25_K: int = 2
+    knn_K: int = 2
+    num_candidates: int = 100
     knn_score_threshold: float = 0.5
     max_subqueries: int = 3
     decomposed_bm25_K: int = 2
     decomposed_knn_K: int = 2
-    max_total_chunks: int = 12
+    max_total_chunks: int = 6
 
 class RewriteSettings(BaseModel):
     custom_model: str | None = None

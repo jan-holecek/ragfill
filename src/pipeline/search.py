@@ -125,7 +125,7 @@ class Search:
 
         return self._rrf(bm25_results, knn_results)
 
-    def rewrite_and_search(self, raw_rewrite_output: str, embedding: Embedding) -> tuple[list[SearchResult], list[str]]:
+    def parse_and_search(self, raw_rewrite_output: str, embedding: Embedding) -> tuple[list[SearchResult], list[str]]:
         queries = self._parse_subqueries(raw_rewrite_output)
 
         if len(queries) == 1:

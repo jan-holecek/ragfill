@@ -129,7 +129,7 @@ class TemplateFill:
 
     def _embed_and_search(self, rewritten_prompt: str) -> tuple:
         query_vector = self.embedding.embed_query(rewritten_prompt)
-        search_chunks, used_queries = self.search.rewrite_and_search(rewritten_prompt, self.embedding)
+        search_chunks, used_queries = self.search.parse_and_search(rewritten_prompt, self.embedding)
 
         return query_vector, search_chunks, used_queries
 
@@ -138,7 +138,7 @@ class TemplateFill:
         used_queries_by_placeholder = {}
 
         for placeholder, prompt in placeholders.items():
-            results, used_queries = self.search.rewrite_and_search(prompt, self.embedding)
+            results, used_queries = self.search.parse_and_search(prompt, self.embedding)
             used_queries_by_placeholder[placeholder] = used_queries
 
             for chunk in results:
@@ -159,6 +159,7 @@ class TemplateFill:
 
         content = response.answer.strip()
         content = re.sub(r"```json\s*|\s*```", "", content).strip()
+
         try:
             values = json.loads(content)
 
@@ -219,6 +220,7 @@ class TemplateFill:
     def get_placeholders_results(self, file_path: str) -> TemplateFillResponse:
         with open(file_path, "rb") as f:
             placeholders = self._extract(f.read(), file_path)
+
         start = time.time()
         values, elapsed, response, used_queries_by_placeholder = self._generate_all_placeholders(placeholders)
 
