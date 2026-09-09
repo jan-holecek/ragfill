@@ -15,11 +15,11 @@ if [ "$DEVICE" = "rocm" ] && [ "$ROCM_IGPU" = "1" ]; then
 
     sed -i "s|HSA_OVERRIDE_GFX_VERSION=.*|HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}|" .env
     sed -i "s|HCC_AMDGPU_TARGET=.*|HCC_AMDGPU_TARGET=${HCC_AMDGPU_TARGET}|" .env
-    sed -i "s|OLLAMA_IGPU_ENABLE=.*|OLLAMA_IGPU_ENABLE=1|" .env
+    sed -i "s|ROCM_IGPU=.*|ROCM_IGPU=1|" .env
 else
     sed -i "s|HSA_OVERRIDE_GFX_VERSION=.*|HSA_OVERRIDE_GFX_VERSION=|" .env
     sed -i "s|HCC_AMDGPU_TARGET=.*|HCC_AMDGPU_TARGET=|" .env
-    sed -i "s|OLLAMA_IGPU_ENABLE=.*|OLLAMA_IGPU_ENABLE=0|" .env
+    sed -i "s|ROCM_IGPU=.*|ROCM_IGPU=0|" .env
 fi
 
 echo "Starting services (device: ${DEVICE})"

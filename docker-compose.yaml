@@ -43,7 +43,7 @@ services:
       - ./data/ollama:/root/.ollama
     environment:
       - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-999}
-      - OLLAMA_IGPU_ENABLE=${OLLAMA_IGPU_ENABLE:-0}
+      - OLLAMA_IGPU_ENABLE=${ROCM_IGPU:-0}
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
       - HCC_AMDGPU_TARGET=${HCC_AMDGPU_TARGET:-}
     devices:
@@ -100,4 +100,4 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    command: ["vllm", "serve", "${LLM__HF_MODEL}", "--quantization", "awq", "--gpu-memory-utilization", "0.65", "--max-model-len", "${LLM__CONTEXT:-4096}"]
+    command: ["vllm", "serve", "${LLM__HF_MODEL}", "--quantization", "awq_marlin", "--gpu-memory-utilization", "0.65", "--max-model-len", "${LLM__CONTEXT:-4096}"]
