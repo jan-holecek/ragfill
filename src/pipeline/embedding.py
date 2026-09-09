@@ -4,23 +4,6 @@ from langchain_core.documents import Document
 from config import EmbeddingSettings
 from models.response import EmbeddingResponse
 
-litellm.suppress_debug_info = True
-
-# litellm's Ollama embeddings handler calls logging_obj.debug()/.warning() when a
-# response is missing prompt_eval_count, but litellm's own Logging class doesn't
-# define those methods (present through at least litellm 1.100.0) - patch them in
-# so that a normal Ollama response quirk doesn't crash the whole embedding call.
-try:
-    from litellm._logging import verbose_logger as _litellm_verbose_logger
-    from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLogging
-
-    if not hasattr(_LiteLLMLogging, "debug"):
-        _LiteLLMLogging.debug = lambda self, msg, *a, **kw: _litellm_verbose_logger.debug(msg)
-    if not hasattr(_LiteLLMLogging, "warning"):
-        _LiteLLMLogging.warning = lambda self, msg, *a, **kw: _litellm_verbose_logger.warning(msg)
-except ImportError:
-    pass
-
 class Embedding:
     def __init__(self, settings: EmbeddingSettings) -> None:
         self.settings = settings

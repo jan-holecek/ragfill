@@ -6,7 +6,6 @@ from models.search import SearchResult
 from prompts import build_rag_prompt
 import litellm
 
-litellm.suppress_debug_info = True
 litellm.cache = litellm.Cache(type="local")
 
 class Generation:
