@@ -46,12 +46,6 @@ class Search:
 
         return self._return_results(results)
 
-    def search(self, query: str, query_vector: list[float], bm25_K: int | None = None, knn_K: int | None = None) -> list[SearchResult]:
-        knn_results = self._knn_search(query_vector, knn_K)
-        bm25_results = self._BM25_search(query, bm25_K)
-
-        return self._rrf(bm25_results, knn_results)
-
     def _parse_subqueries(self, raw: str) -> list[str]:
         queries = []
         for line in raw.split("\n"):
@@ -124,6 +118,12 @@ class Search:
 
             for hit in results["hits"]["hits"]
         ]
+
+    def search(self, query: str, query_vector: list[float], bm25_K: int | None = None, knn_K: int | None = None) -> list[SearchResult]:
+        knn_results = self._knn_search(query_vector, knn_K)
+        bm25_results = self._BM25_search(query, bm25_K)
+
+        return self._rrf(bm25_results, knn_results)
 
     def rewrite_and_search(self, raw_rewrite_output: str, embedding: Embedding) -> tuple[list[SearchResult], list[str]]:
         queries = self._parse_subqueries(raw_rewrite_output)

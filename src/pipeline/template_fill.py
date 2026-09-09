@@ -1,4 +1,8 @@
 from pathlib import Path
+from typing import Generator
+
+import openpyxl
+
 from config import SearchSettings
 from db.elasticsearch import ElasticSearchDB
 from models.response import RAGResponse
@@ -15,21 +19,47 @@ import json
 from pipeline.search import Search
 from prompts import build_template_fill_prompt, build_template_fill_all_prompt
 from models.response import TemplateFillResponse, PlaceholderResponse
-from typing import Generator
+import io
+
+PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}")
+NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
 class TemplateFill:
     def __init__(self, db: ElasticSearchDB, embedding: Embedding, generation: Generation, rewriter: QueryRewrite | None = None) -> None:
         self.embedding = embedding
-        self.search = Search(db, SearchSettings(bm25_K=1, knn_K=1, num_candidates=50))
+        self.search = Search(db, SearchSettings(bm25_K=1, knn_K=1, num_candidates=100))
         self.generation = generation
         self.rewriter = rewriter
-        self.ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
-    def _extract_placeholders(self, file_path: str) -> dict[str, str]:
-        path = Path(file_path).absolute()
+    def _extract(self, content: bytes, filename: str) -> dict[str, str]:
+        suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+        if suffix == "docx":
+            return self._extract_docx(content)
+        elif suffix == "xlsx":
+            return self._extract_xlsx(content)
+
+        raise ValueError(f"unsupported file type '.{suffix}' (expected .docx or .xlsx)")
+
+    def _extract_xlsx(self, content: bytes) -> dict[str, str]:
+        workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
         placeholders = {}
 
-        with zipfile.ZipFile(path, "r") as zip_file:
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if not isinstance(cell.value, str) or cell.comment is None:
+                        continue
+
+                    for match in PLACEHOLDER_RE.findall(cell.value):
+                        placeholders[match] = cell.comment.text
+
+        return placeholders
+
+    def _extract_docx(self, content: bytes) -> dict[str, str]:
+        placeholders = {}
+
+        with zipfile.ZipFile(io.BytesIO(content), "r") as zip_file:
             if "word/comments.xml" not in zip_file.namelist():
                 return {}
 
@@ -37,12 +67,12 @@ class TemplateFill:
             root = ET.fromstring(comments_xml)
             comments = {}
 
-            for comment in root.findall("w:comment", self.ns):
-                comment_id = comment.get(f"{{{self.ns['w']}}}id")
-                comment_text = "".join(text.text or "" for text in comment.findall(".//w:t", self.ns))
+            for comment in root.findall("w:comment", NS):
+                comment_id = comment.get(f"{{{NS['w']}}}id")
+                comment_text = "".join(text.text or "" for text in comment.findall(".//w:t", NS))
                 comments[comment_id] = comment_text
 
-        doc = Document(path)
+        doc = Document(io.BytesIO(content))
         body = doc.element.body
 
         for elem in body.iter():
@@ -61,7 +91,39 @@ class TemplateFill:
 
         return placeholders
 
-    def _generate_placeholder_content(self, placeholder: str, prompt: str) -> RAGResponse | None:
+    def _save_xlsx(self, file_path: str, output_path: str, values: dict[str, str]) -> None:
+        workbook = openpyxl.load_workbook(file_path)
+
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if not isinstance(cell.value, str):
+                        continue
+
+                    for match in PLACEHOLDER_RE.findall(cell.value):
+                        if match in values:
+                            cell.value = cell.value.replace(match, values[match])
+
+        workbook.save(output_path)
+
+    def _save_docx(self, file_path: str, output_path: str, values: dict[str, str]) -> None:
+        doc = Document(file_path)
+
+        for paragraph in doc.paragraphs:
+            for match in PLACEHOLDER_RE.findall(paragraph.text):
+                if match in values:
+                    paragraph.text = paragraph.text.replace(match, values[match])
+
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for match in PLACEHOLDER_RE.findall(cell.text):
+                        if match in values:
+                            cell.text = cell.text.replace(match, values[match])
+
+        doc.save(output_path)
+
+    def _generate_placeholder_content(self, prompt: str) -> RAGResponse | None:
         rewrite_result = None
         rewritten_prompt = prompt
 
@@ -119,11 +181,11 @@ class TemplateFill:
         except Exception:
             return {p: "" for p in placeholders}, response.elapsed, None, used_queries_by_placeholder
 
-    def fill_stream(self, file_path: str) -> Generator[PlaceholderResponse, None, None]:
-        placeholders = self._extract_placeholders(file_path)
+    def get_placeholders_results_stream(self, file_path: str) -> Generator[PlaceholderResponse, None, None]:
+        placeholders = self._extract(file_path)
 
         for placeholder, prompt in placeholders.items():
-            generated = self._generate_placeholder_content(placeholder, prompt)
+            generated = self._generate_placeholder_content(prompt)
 
             if generated:
                 yield PlaceholderResponse(
@@ -147,8 +209,8 @@ class TemplateFill:
                     elapsed=0,
                 )
 
-    def fill(self, file_path: str) -> TemplateFillResponse:
-        placeholders = self._extract_placeholders(file_path)
+    def get_placeholders_results(self, file_path: str) -> TemplateFillResponse:
+        placeholders = self._extract(file_path)
         start = time.time()
         values, elapsed, response, used_queries_by_placeholder = self._generate_all_placeholders(placeholders)
 
@@ -174,3 +236,13 @@ class TemplateFill:
             total_completion_tokens=response.completion_tokens if response else 0,
             total_prompt_tokens=response.prompt_tokens if response else 0,
         )
+
+    def save(self, file_path: str, output_path: str, values: dict[str, str]) -> None:
+        suffix = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+
+        if suffix == "docx":
+            self._save_docx(file_path, output_path, values)
+        elif suffix == "xlsx":
+            self._save_xlsx(file_path, output_path, values)
+        else:
+            raise ValueError(f"unsupported file type '.{suffix}' (expected .docx or .xlsx)")
