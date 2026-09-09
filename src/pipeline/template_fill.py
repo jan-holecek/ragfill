@@ -1,11 +1,7 @@
-from pathlib import Path
 from typing import Generator
-
 import openpyxl
-
 from config import SearchSettings
 from db.elasticsearch import ElasticSearchDB
-from models.response import RAGResponse
 from pipeline.embedding import Embedding
 from pipeline.generation import Generation
 from pipeline.query_rewrite import QueryRewrite
@@ -27,14 +23,7 @@ NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 class TemplateFill:
     def __init__(self, db: ElasticSearchDB, embedding: Embedding, generation: Generation, rewriter: QueryRewrite | None = None) -> None:
         self.embedding = embedding
-        self.search = Search(db, SearchSettings(
-            bm25_K=1,
-            knn_K=1,
-            num_candidates=100,
-            decomposed_bm25_K=1,
-            decomposed_knn_K=1,
-            max_total_chunks=3,
-        ))
+        self.search = Search(db)
         self.generation = generation
         self.rewriter = rewriter
 
@@ -130,30 +119,19 @@ class TemplateFill:
 
         doc.save(output_path)
 
-    def _generate_placeholder_content(self, prompt: str) -> RAGResponse | None:
-        rewrite_result = None
-        rewritten_prompt = prompt
+    def _rewrite_prompt(self, prompt: str) -> tuple:
+        if not self.rewriter:
+            return None, prompt
 
-        if self.rewriter:
-            rewrite_result = self.rewriter.rewrite(prompt)
-            rewritten_prompt = rewrite_result.rewritten_query
+        rewrite_result = self.rewriter.rewrite(prompt)
 
+        return rewrite_result, rewrite_result.rewritten_query
+
+    def _embed_and_search(self, rewritten_prompt: str) -> tuple:
         query_vector = self.embedding.embed_query(rewritten_prompt)
         search_chunks, used_queries = self.search.rewrite_and_search(rewritten_prompt, self.embedding)
 
-        if not search_chunks:
-            return None
-
-        response = self.generation.generate(
-            prompt,
-            search_chunks,
-            query_vector,
-            rewrite_result,
-            prompt_builder=build_template_fill_prompt
-        )
-        response.used_queries = used_queries
-
-        return response
+        return query_vector, search_chunks, used_queries
 
     def _generate_all_placeholders(self, placeholders: dict[str, str]):
         all_chunks = {}
@@ -192,22 +170,21 @@ class TemplateFill:
         with open(file_path, "rb") as f:
             placeholders = self._extract(f.read(), file_path)
 
-        for placeholder, prompt in placeholders.items():
-            generated = self._generate_placeholder_content(prompt)
+        rewrites = {
+            placeholder: self._rewrite_prompt(prompt)
+            for placeholder, prompt in placeholders.items()
+        }
 
-            if generated:
-                yield PlaceholderResponse(
-                    placeholder=placeholder,
-                    prompt=prompt,
-                    answer=generated.answer,
-                    completion_tokens=generated.completion_tokens,
-                    prompt_tokens=generated.prompt_tokens,
-                    elapsed=generated.elapsed,
-                    rewrite=generated.rewrite,
-                    chunks=generated.chunks,
-                    used_queries=generated.used_queries,
-                )
-            else:
+        prepared = {
+            placeholder: self._embed_and_search(rewritten_prompt)
+            for placeholder, (_, rewritten_prompt) in rewrites.items()
+        }
+
+        for placeholder, prompt in placeholders.items():
+            rewrite_result, _ = rewrites[placeholder]
+            query_vector, search_chunks, used_queries = prepared[placeholder]
+
+            if not search_chunks:
                 yield PlaceholderResponse(
                     placeholder=placeholder,
                     prompt=prompt,
@@ -216,6 +193,28 @@ class TemplateFill:
                     prompt_tokens=0,
                     elapsed=0,
                 )
+                continue
+
+            response = self.generation.generate(
+                prompt,
+                search_chunks,
+                query_vector,
+                rewrite_result,
+                prompt_builder=build_template_fill_prompt
+            )
+            response.used_queries = used_queries
+
+            yield PlaceholderResponse(
+                placeholder=placeholder,
+                prompt=prompt,
+                answer=response.answer,
+                completion_tokens=response.completion_tokens,
+                prompt_tokens=response.prompt_tokens,
+                elapsed=response.elapsed,
+                rewrite=response.rewrite,
+                chunks=response.chunks,
+                used_queries=response.used_queries,
+            )
 
     def get_placeholders_results(self, file_path: str) -> TemplateFillResponse:
         with open(file_path, "rb") as f:
