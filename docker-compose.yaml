@@ -43,6 +43,9 @@ services:
       - ./data/ollama:/root/.ollama
     environment:
       - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-999}
+      - OLLAMA_IGPU_ENABLE=${OLLAMA_IGPU_ENABLE:-0}
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
+      - HCC_AMDGPU_TARGET=${HCC_AMDGPU_TARGET:-}
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
