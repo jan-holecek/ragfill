@@ -12,7 +12,7 @@ RagFill is a self-hosted Retrieval-Augmented Generation (RAG) backend. It ingest
 - [Project structure](#project-structure)
 - [Configuration](#configuration)
   - [Choosing a device profile](#choosing-a-device-profile)
-  - [Tuning search & chunking](#tuning-search--chunking)
+  - [Enabling ROCm iGPU support](#enabling-rocm-igpu-support)
 - [Managing models](#managing-models)
 - [Running it](#running-it)
 - [Services and ports](#services-and-ports)
@@ -21,21 +21,21 @@ RagFill is a self-hosted Retrieval-Augmented Generation (RAG) backend. It ingest
 
 ## What it does
 
-- **Document ingestion** - loads source documents and converts them into clean, Markdown-flavoured text (headings, lists, bold, tables) so structure survives into the chunks. Currently supports `.docx` (`src/loaders/docx.py`); `.pdf` and `.xlsx` loaders are stubbed and planned.
-- **Chunking** - splits documents on Markdown headers first, then recursively by character count for any section that's still too large, so chunks stay both semantically coherent and size-bounded (`src/pipeline/chunking.py`).
-- **Embedding & indexing** - embeds chunks through LiteLLM and stores them in Elasticsearch alongside their metadata (`src/pipeline/embedding.py`, `src/db/elasticsearch.py`).
-- **Hybrid search** - retrieves candidates with both BM25 (keyword) and kNN (vector) search, then fuses the two rankings with Reciprocal Rank Fusion (RRF) so lexical and semantic matches both surface (`src/pipeline/search.py`).
-- **Grounded generation** - answers are generated only from retrieved context. The system prompt instructs the model to say when the answer isn't in the documents rather than guessing, and to always reply in Czech. Both blocking and streaming generation are supported (`src/pipeline/generation.py`, `src/prompts.py`).
-- **Model-agnostic backend** - the same pipeline runs on CPU, AMD/ROCm GPU, or NVIDIA/CUDA GPU by swapping the Docker Compose profile. LiteLLM abstracts Ollama vs. vLLM behind one OpenAI-compatible interface, so pipeline code never changes.
-
-Why this shape: keeping the LLM/embedding backend swappable via LiteLLM means the same codebase runs on a laptop CPU during development and on a CUDA box in production without touching `src/pipeline/*`. Hybrid search with RRF exists because BM25 alone misses paraphrases and kNN alone misses exact terms like IDs and names, so combining them covers both cases.
+- **Document ingestion** - loads source documents and converts them into clean, Markdown-flavoured text (headings, lists, bold, tables) so structure survives into the chunks. Supports `.docx`, `.pdf`, and `.xlsx`.
+- **Chunking** - splits on Markdown headers first, keeps tables intact (an oversized table is split on row boundaries instead, repeating the header row), carries a sentence-aware overlap into the next chunk instead of a blind character cut, and merges chunks that end up too short instead of dropping them.
+- **Query rewrite & decomposition** - before searching, an LLM call turns the raw question into one or more standalone, self-contained search queries, resolving pronouns/references from conversation history. Multi-fact questions (e.g. comparing two dates, or joining facts about different entities) are split into independent sub-questions instead of being blended into one blurred embedding.
+- **Embedding & indexing** - embeds chunks through LiteLLM and stores them in Elasticsearch alongside their metadata.
+- **Hybrid search** - retrieves candidates with both BM25 (keyword) and kNN (vector) search, then fuses the two rankings with Reciprocal Rank Fusion (RRF) so lexical and semantic matches both surface. When the rewrite step decomposes a question into sub-queries, each one is searched independently and the results are merged by RRF score.
+- **Template filling** - extracts `{{placeholder}}` markers and their fill instructions from Word comment ranges or Excel cell comments, runs a RAG query per placeholder (or one batched query that fills every placeholder from the merged context), and writes back the extracted values with per-placeholder token/timing stats.
+- **Grounded generation** - answers are generated only from retrieved context. The system prompt instructs the model to say when the answer isn't in the documents rather than guessing, and to always reply in Czech. Both blocking and streaming generation are supported, and the same generator powers template filling via a swappable prompt builder.
+- **Model-agnostic backend** - the same pipeline runs on CPU, AMD/ROCm GPU, or NVIDIA/CUDA GPU by swapping the Docker Compose profile. The `litellm` SDK abstracts Ollama vs. vLLM behind one call shape, so pipeline code never changes.
 
 ## Project structure
 
 ```
 RagFill/
 ├── docker-compose.yaml      # Mongo, Elasticsearch, LiteLLM, Ollama, vLLM services
-├── litellm_config.yaml      # LiteLLM model routing (llm + embedding routes)
+├── litellm_config.yaml      # LiteLLM proxy model routing (llm + embedding routes; not yet used by the pipeline)
 ├── pyproject.toml           # uv project + dependencies
 ├── requirements.txt         # plain pip fallback
 ├── .env.example             # documented environment template
@@ -45,7 +45,7 @@ RagFill/
 └── src/
     ├── main.py              # example / test pipeline
     ├── config.py            # pydantic-settings configuration
-    ├── prompts.py           # RAG system prompt
+    ├── prompts.py           # RAG, query-rewrite, and template-fill prompt builders
     ├── api/                 # (planned) REST API layer
     ├── core/
     │   ├── db.py            # BaseDB interface
@@ -56,23 +56,23 @@ RagFill/
     │   └── collections/     # (planned) Mongo collection schemas
     ├── loaders/
     │   ├── docx.py          # .docx -> Markdown-flavoured Document loader
-    │   ├── pdf.py           # (planned)
-    │   └── xlsx.py          # (planned)
+    │   ├── pdf.py           # .pdf -> Markdown via pymupdf4llm
+    │   └── xlsx.py          # .xlsx -> one Markdown table per sheet
     ├── models/
-    │   ├── response.py      # RAGResponse / EmbeddingResponse / StreamChunkResponse
+    │   ├── response.py      # RAGResponse / EmbeddingResponse / TemplateFillResponse / ...
     │   └── search.py        # SearchResult
     └── pipeline/
-        ├── chunking.py      # Markdown-header + recursive character chunking
-        ├── embedding.py     # embeddings via LiteLLM
-        ├── generation.py    # LLM generation (sync + streaming) via LiteLLM
-        ├── search.py        # hybrid BM25 + kNN search with RRF fusion
-        ├── rerank.py        # (planned)
-        └── query_rewrite.py # (planned)
+        ├── chunking.py      # header-aware Markdown chunking: intact tables, sentence overlap, short-chunk merging
+        ├── embedding.py     # embeddings via litellm
+        ├── generation.py    # LLM generation (sync + streaming) via litellm
+        ├── query_rewrite.py # standalone-query rewriting + multi-fact question decomposition
+        ├── search.py        # hybrid BM25 + kNN search, RRF fusion, multi-query search over decomposed sub-queries
+        └── template_fill.py # extracts {{placeholders}} from .docx/.xlsx comments and fills them via RAG
 ```
 
 ## Configuration
 
-Settings are loaded by `src/config.py` (pydantic-settings) from a `.env` file, using `__` as the nested delimiter. For example, `MONGO__URL` fills `settings.mongo.url`. Copy the template to get started:
+Settings are loaded from a `.env` file (via pydantic-settings), using `__` as the nested delimiter. For example, `MONGO__URL` fills `settings.mongo.url`. Copy the template to get started:
 
 ```bash
 cp .env.example .env
@@ -85,25 +85,29 @@ The `DEVICE` variable in `.env` selects both the Docker Compose profile and whic
 | `DEVICE` | Hardware | Serving stack | Notes |
 |---|---|---|---|
 | `cpu` | No GPU | Ollama | `OLLAMA_NUM_GPU=0` to guarantee CPU-only inference |
-| `rocm` | AMD GPU | Ollama | Same Ollama container, with `/dev/kfd` and `/dev/dri` passed through; `OLLAMA_NUM_GPU=999` lets Ollama auto-detect the GPU |
+| `rocm` | AMD GPU | Ollama | Same Ollama container, with `/dev/kfd` and `/dev/dri` passed through; `OLLAMA_NUM_GPU=999` lets Ollama auto-detect the GPU. Integrated GPUs need extra config - see [Enabling ROCm iGPU support](#enabling-rocm-igpu-support) |
 | `cuda` | NVIDIA GPU | vLLM | Two separate vLLM OpenAI-compatible servers (one for the LLM, one for embeddings), requires the NVIDIA Container Toolkit |
 
-`scripts/start.sh` brings up `docker compose --profile ${DEVICE}`, waits for the relevant service(s) to become healthy, and then rewrites the auto-managed `.env` keys (`LLM__API_BASE`, `EMBEDDING__API_BASE`, `LLM__LITELLM_MODEL`, `EMBEDDING__LITELLM_MODEL`) to point at whichever stack it just started. Don't edit those four keys by hand, since they get overwritten on every start.
+`scripts/start.sh` brings up `docker compose --profile ${DEVICE}`, waits for the relevant service(s) to become healthy, and then rewrites the auto-managed `.env` keys (`LLM__API_BASE`, `EMBEDDING__API_BASE`, `REWRITE__API_BASE`, `LLM__LITELLM_MODEL`, `EMBEDDING__LITELLM_MODEL`, `REWRITE__LITELLM_MODEL`) to point at whichever stack it just started. Don't edit those six keys by hand, since they get overwritten on every start.
 
-Whichever profile is active, application code always talks to **LiteLLM** (`http://localhost:4000` by default via `LLM__API_BASE`/`EMBEDDING__API_BASE`), which forwards to Ollama or vLLM underneath. `litellm_config.yaml` defines the two routes (`llm`, `embedding`) it proxies.
+Whichever profile is active, application code talks directly to the underlying inference server through the `litellm` Python SDK: the auto-managed `*_API_BASE` keys point at Ollama (`http://localhost:11434`) or vLLM (`http://localhost:8000`/`8001`), and the `*_LITELLM_MODEL` keys carry the `ollama/`- or `openai/`-prefixed model id litellm uses to pick the right provider, so pipeline code never has to know which one is running. A standalone LiteLLM proxy also runs alongside the stack on port 4000 for use as a shared gateway later, but the pipeline doesn't route through it yet.
 
-### Tuning search & chunking
+### Enabling ROCm iGPU support
 
-`src/config.py` also exposes (with sensible defaults, overridable via `.env`):
+ROCm's GPU detection targets discrete cards. Most integrated GPUs report a chip ID ROCm doesn't recognize and get silently skipped (falling back to CPU), and some iGPUs aren't supported by ROCm at all no matter what you configure. Before enabling this, check that your APU's GPU is RDNA2/RDNA3-class with at least community-reported ROCm/Ollama iGPU support - e.g. the Radeon 780M/880M/890M found in Ryzen 7040/8040/AI 300 ("Phoenix"/"Hawk Point"/"Strix Point") mobile chips. Older or unrelated iGPUs (older RDNA/Vega APUs, non-AMD iGPUs, etc.) generally won't work here regardless of configuration.
 
-- `CHUNKING__CHUNK_SIZE` / `CHUNKING__CHUNK_OVERLAP` - recursive character splitter bounds (default 2000 / 200).
-- `SEARCH__BM25_K` / `SEARCH__KNN_K` - how many hits each retriever contributes before RRF fusion (default 3 / 3).
-- `SEARCH__NUM_CANDIDATES` - kNN candidate pool size (default 200).
-- `SEARCH__KNN_SCORE_THRESHOLD` - minimum kNN similarity (default 0.5).
+For a supported chip, ROCm can usually be coerced into treating the iGPU as a similar, officially-supported one via `HSA_OVERRIDE_GFX_VERSION`. To enable it:
+
+1. In `.env`, set `DEVICE=rocm` and `ROCM_IGPU=1`.
+2. Check `HSA_OVERRIDE_GFX_VERSION` / `HCC_AMDGPU_TARGET` in `.env`. The defaults (`11.0.0` / `gfx1100`) target RDNA3 iGPUs like the 780M/880M, which are natively `gfx1103` but run fine reporting as `gfx1100`. If your chip's real `gfx` target differs (e.g. via `rocminfo | grep gfx` on a ROCm-capable machine, or AMD's docs), override these to the closest supported target instead.
+3. Run `./scripts/start.sh` as usual. When `ROCM_IGPU=1`, it writes the override values into `.env` and passes them into the Ollama container's environment before the container starts; `OLLAMA_NUM_GPU=999` still handles device auto-detection.
+4. Check `sudo docker logs ragfill-ollama` for GPU detection. If the iGPU still doesn't show up, that's most likely a genuinely unsupported chip rather than a configuration problem.
+
+Leave `ROCM_IGPU=0` (the default) if you're running ROCm on a discrete AMD GPU - it's already detected correctly without an override, and forcing a mismatched `HSA_OVERRIDE_GFX_VERSION` onto a different-generation card can break it.
 
 ## Managing models
 
-Models are configured entirely through `.env`. Nothing is hardcoded in `src/`. Example:
+Models are configured entirely through `.env`. Nothing is hardcoded in the app. Example:
 
 ```dotenv
 # Device profile: cpu, rocm, cuda
@@ -133,25 +137,42 @@ EMBEDDING__MODEL=bge-m3
 # HuggingFace model ID (cuda)
 EMBEDDING__HF_MODEL=BAAI/bge-m3
 
+# Query rewrite model - a small/fast model with a short context window is enough,
+# since it only rewrites and decomposes the incoming question (uses the same base
+# model as LLM__MODEL, just with a different context window)
+REWRITE__CUSTOM_MODEL=gemma3-rewrite
+REWRITE__CONTEXT=2048
+
 # Ollama GPU (999 = auto, 0 = cpu only)
 OLLAMA_NUM_GPU=999
+
+# ROCm integrated GPU support (DEVICE=rocm only) - see "Enabling ROCm iGPU support"
+# in this README before turning this on; not every iGPU is supported by ROCm
+ROCM_IGPU=0
+# Only applied when ROCM_IGPU=1 - defaults target RDNA3 iGPUs (e.g. Radeon 780M/880M)
+# reporting themselves as gfx1100
+HSA_OVERRIDE_GFX_VERSION=11.0.0
+HCC_AMDGPU_TARGET=gfx1100
 
 # LiteLLM gateway auth
 LITELLM_KEY=ragfill
 LLM__OPEN_API_KEY=ragfill
 EMBEDDING__OPEN_API_KEY=ragfill
+REWRITE__OPEN_API_KEY=ragfill
 
 # Auto-set by scripts/start.sh - do not edit manually
 LLM__API_BASE=http://localhost:11434
 EMBEDDING__API_BASE=http://localhost:11434
+REWRITE__API_BASE=http://localhost:11434
 LLM__LITELLM_MODEL=ollama/gemma3-128k
 EMBEDDING__LITELLM_MODEL=ollama/bge-m3
+REWRITE__LITELLM_MODEL=ollama/gemma3-rewrite
 ```
 
 Swapping a model is a two-line change:
 
-- **cpu / rocm** - set `LLM__MODEL` / `EMBEDDING__MODEL` to any Ollama tag; `scripts/start.sh` pulls it automatically on next start. Set `LLM__CUSTOM_MODEL` + `LLM__CONTEXT` if you want a longer context window than the model's default (Ollama's `num_ctx` is capped at 4096 unless a custom Modelfile raises it, which the script does for you).
-- **cuda** - set `LLM__HF_MODEL` / `EMBEDDING__HF_MODEL` to any HuggingFace repo ID vLLM can serve; set `HF_TOKEN` if the repo is gated.
+- **cpu / rocm** - set `LLM__MODEL` / `EMBEDDING__MODEL` to any Ollama tag; `scripts/start.sh` pulls it automatically on next start. Set `LLM__CUSTOM_MODEL` + `LLM__CONTEXT` if you want a longer context window than the model's default (Ollama's `num_ctx` is capped at 4096 unless a custom Modelfile raises it, which the script does for you). `REWRITE__CUSTOM_MODEL` + `REWRITE__CONTEXT` work the same way for the query-rewrite model.
+- **cuda** - set `LLM__HF_MODEL` / `EMBEDDING__HF_MODEL` to any HuggingFace repo ID vLLM can serve; set `HF_TOKEN` if the repo is gated. Query rewrite reuses `LLM__HF_MODEL` on this profile.
 
 ## Running it
 
@@ -190,7 +211,6 @@ Requires Docker, and either `uv` or `pip` with Python 3.11+.
  
 | Service | Port | Profile | Description |
 |---------|------|---------|-------------|
-| Streamlit UI | 8501 | all | Test interface |
 | Elasticsearch | 9200 | all | Vector + full-text database |
 | MongoDB | 27017 | all | Metadata storage |
 | LiteLLM | 4000 | all | Unified LLM proxy |
@@ -201,10 +221,8 @@ Requires Docker, and either `uv` or `pip` with Python 3.11+.
 ## TODO
 
 - Reranking of hybrid search results
-- Additional loaders
-- Template filling - extract placeholders from a Word template, run a RAG query per placeholder, write values back
-- REST API so the pipeline can be used without a Python entrypoint
-- Directory crawler - recursively index all `.docx`/`.xlsx` files from a local path or network share
+- FastAPI REST API
+- Directory crawler - recursively index all files from a local path or network share
 - Use MongoDB for uploaded file metadata, currently connected but unused
 - LLMOps - integrate Langfuse for prompt/response logging, latency tracking and per-request observability
 - Evaluation - build a test dataset and run RAGAS metrics (faithfulness, answer relevancy, context precision) offline to measure and compare pipeline changes
