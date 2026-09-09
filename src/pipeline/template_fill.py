@@ -27,7 +27,14 @@ NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 class TemplateFill:
     def __init__(self, db: ElasticSearchDB, embedding: Embedding, generation: Generation, rewriter: QueryRewrite | None = None) -> None:
         self.embedding = embedding
-        self.search = Search(db, SearchSettings(bm25_K=1, knn_K=1, num_candidates=100))
+        self.search = Search(db, SearchSettings(
+            bm25_K=1,
+            knn_K=1,
+            num_candidates=100,
+            decomposed_bm25_K=1,
+            decomposed_knn_K=1,
+            max_total_chunks=3,
+        ))
         self.generation = generation
         self.rewriter = rewriter
 
@@ -182,7 +189,8 @@ class TemplateFill:
             return {p: "" for p in placeholders}, response.elapsed, None, used_queries_by_placeholder
 
     def get_placeholders_results_stream(self, file_path: str) -> Generator[PlaceholderResponse, None, None]:
-        placeholders = self._extract(file_path)
+        with open(file_path, "rb") as f:
+            placeholders = self._extract(f.read(), file_path)
 
         for placeholder, prompt in placeholders.items():
             generated = self._generate_placeholder_content(prompt)
@@ -210,7 +218,8 @@ class TemplateFill:
                 )
 
     def get_placeholders_results(self, file_path: str) -> TemplateFillResponse:
-        placeholders = self._extract(file_path)
+        with open(file_path, "rb") as f:
+            placeholders = self._extract(f.read(), file_path)
         start = time.time()
         values, elapsed, response, used_queries_by_placeholder = self._generate_all_placeholders(placeholders)
 
