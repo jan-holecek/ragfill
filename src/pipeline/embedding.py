@@ -38,8 +38,11 @@ class Embedding:
         )
 
     def embed_query(self, query: str) -> EmbeddingResponse:
+        return self.embed_queries([query])
+
+    def embed_queries(self, queries: list[str]) -> EmbeddingResponse:
         start = time.time()
-        response = self._call_embedding([query])
+        response = self._call_embedding(queries)
         elapsed = time.time() - start
         vectors = [item["embedding"] for item in response.data]
 

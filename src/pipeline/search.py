@@ -61,16 +61,16 @@ class Search:
 
         return queries
 
-    def _multi_query_search(self, queries: list[str], embedding: Embedding) -> list[SearchResult]:
+    def _multi_query_search(self, queries: list[str], embedding: Embedding, bm25_K: int | None = None, knn_K: int | None = None) -> list[SearchResult]:
         merged: dict[str, SearchResult] = {}
+        query_vectors = embedding.embed_queries(queries).vectors
 
-        for query in queries:
-            query_vector = embedding.embed_query(query).vectors[0]
+        for query, query_vector in zip(queries, query_vectors):
             results = self.search(
                 query,
                 query_vector,
-                bm25_K=self.settings.decomposed_bm25_K,
-                knn_K=self.settings.decomposed_knn_K,
+                bm25_K=bm25_K,
+                knn_K=knn_K,
             )
 
             for result in results:
@@ -131,6 +131,6 @@ class Search:
         if len(queries) == 1:
             query_vector = embedding.embed_query(queries[0]).vectors[0]
 
-            return self.search(queries[0], query_vector), queries
+            return self.search(queries[0], query_vector, self.settings.bm25_K, self.settings.knn_K), queries
 
-        return self._multi_query_search(queries, embedding), queries
+        return self._multi_query_search(queries, embedding, self.settings.decomposed_bm25_K, self.settings.decomposed_knn_K), queries
